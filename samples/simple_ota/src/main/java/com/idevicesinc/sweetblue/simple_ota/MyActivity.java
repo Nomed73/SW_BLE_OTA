@@ -33,31 +33,33 @@ import com.idevicesinc.sweetblue.LogOptions;
 import com.idevicesinc.sweetblue.ReadWriteListener;
 import com.idevicesinc.sweetblue.utils.BleSetupHelper;
 import com.idevicesinc.sweetblue.utils.Uuids;
+
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.MalformedURLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.net.URL;
 
 /**
  * A very simple example which shows how to scan for BLE devices, connect to the first one seen, and then perform an over-the-air (OTA) firmware update.
  */
 public class MyActivity extends Activity
 {
-    // This is the UUID of the characteristic we want to write to (make sure you change it to a valid UUID for the device you want to connect to)
-    private static final UUID MY_UUID = UUID.fromString("d6f1d96d-594c-4c53-b1c6-244a1dfde6d8"); //Uuids.BATTERY_LEVEL;  // NOTE: Replace with your actual UUID.
 
-    // There's really no need to keep this up here, it's just here for convenience.
-    private static final byte[] MY_DATA = {(byte) 0xC0, (byte) 0xFF, (byte) 0xEE};//  NOTE: Replace with your actual data, not 0xC0FFEE.
+    private static final String GEL_BLASTER_UUID = "000000ff-0000-1000-8000-00805f9b34fb";  //GelBlaster UUID
 
-    // We're keeping an instance of BleManager for convenience, but it's not really necessary since it's a singleton. It's helpful so you
-    // don't have to keep passing in a Context to retrieve it.
+    // This is the UUID of the characteristic we want to write to
+    private static final UUID MY_UUID = UUID.fromString("d6f1d96d-594c-4c53-b1c6-244a1dfde6d8");
+
     private BleManager m_bleManager;
-
-    // The instance of the device we're going to connect to and write to.
     private BleDevice m_bleDevice;
-
-    private List<BleDevice> m_bleDeviceList = new ArrayList<>();
-
     private boolean m_discovered = false;
+
+    // There's really no need to keep this up here, it's just here for convenience. Here for sample data.
+    private static final byte[] MY_DATA = {(byte) 0xC0, (byte) 0xFF, (byte) 0xEE};//  NOTE: Replace with your actual data, not 0xC0FFEE.
 
     @Override
     protected void onCreate(Bundle savedInstanceState)
@@ -105,38 +107,28 @@ public class MyActivity extends Activity
         if(!m_discovered)
         {
             BleDevice temp = discoveryEvent.device();
-            Toast.makeText(this, "Name: " + temp.getName_normalized(), Toast.LENGTH_LONG).show();
-            if (temp.getName_normalized().equals("noetarget")) {
+            //Assist with debugging and see what is happening, can be deleted.
+            String message = "Name : "+ temp.getName_normalized() + " UUID: ";
+
+            //Create a string of the UUID of the temp BLE device
+            String uuidTemp = "";
+            for(int i = 0; i < temp.getAdvertisedServices().length; i++)
+            {
+                uuidTemp += temp.getAdvertisedServices()[i];
+            }
+            message += uuidTemp;
+            Log.d("OnDiscoveredDevice: ", "UUID:" + message);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            if(uuidTemp.equals(GEL_BLASTER_UUID))
+            {
                 m_bleDevice = temp;
                 m_discovered = true;
                 m_bleManager.stopScan();
-
                 //Remove the line below later
-                Toast.makeText(this, "Connected to " + m_bleDevice.getName_normalized(), Toast.LENGTH_LONG).show();
+                Log.d("OnDiscoveredDevice: ", "Connected to : " + m_bleDevice.getName_normalized());
                 connectToDevice();
             }
         }
-
-        /** Code below will connect to the firs tBLE that is scanned.
-        // We're only going to connect to the first device we see, so let's stop the scan now. However, it's possible that more devices have already been discovered and will get piped
-        // into the discovery listener, hence the need for the discovered boolean here (on newer API levels the system dispatches devices found in batches)
-        if (!m_discovered)
-        {
-            m_discovered = true;
-
-            // While SweetBlue will automatically stop the scan when you perform any other BLE operation, it's good practice to manually stop the scan here as in this case,
-            // we're only concerned with the first device we find. Also, if there is no stopScan method, scanning will resume as soon as all other BLE operations are done.
-            m_bleManager.stopScan();
-
-            // We only care about the DISCOVERED event. REDISCOVERED can get posted many times for a single device during a scan.
-            if (discoveryEvent.was(DiscoveryListener.LifeCycle.DISCOVERED))
-            {
-                // Grab the device from the DiscoveryEvent instance
-                m_bleDevice = discoveryEvent.device();
-                connectToDevice();
-            }
-        }
-         **/
     }
 
     private void connectToDevice()
@@ -177,8 +169,6 @@ public class MyActivity extends Activity
     // write operation.
     private static class SimpleOtaTransaction extends BleTransaction.Ota
     {
-
-
         // Our list of byte arrays to be sent to the device
         private final List<byte[]> m_dataQueue;
 
@@ -202,8 +192,7 @@ public class MyActivity extends Activity
         // Cache an instance of BleWrite, then we simply change the data we're sending.
         private final BleWrite m_bleWrite = new BleWrite(MY_UUID).setReadWriteListener(m_readWriteListener);
 
-        public SimpleOtaTransaction(final List<byte[]> dataQueue)
-        {
+        public SimpleOtaTransaction(final List<byte[]> dataQueue) throws MalformedURLException {
             m_dataQueue = dataQueue;
         }
 

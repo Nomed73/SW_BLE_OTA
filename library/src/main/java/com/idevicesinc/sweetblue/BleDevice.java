@@ -66,7 +66,7 @@ import java.util.UUID;
  * {@link BleManager#newDevice(String, String)}, usually they're created
  * implicitly by {@link BleManager} as a result of a scanning operation (e.g.
  * {@link BleManager#startScan()}) and sent to you through
- * {@link DiscoveryListener#onEvent(Event)}.
+ * {@link DiscoveryListener# onEvent(Event)}.
  */
 public final class BleDevice extends BleNode
 {
