@@ -24,6 +24,8 @@ import com.idevicesinc.sweetblue.utils.Percent;
 import com.idevicesinc.sweetblue.utils.Utils_String;
 import com.idevicesinc.sweetblue.utils.GenericListener_Void;
 
+import java.io.IOException;
+
 /**
  * Provide an implementation to {@link BleManager#setListener_Discovery(DiscoveryListener)} to receive
  * callbacks when a device is newly discovered, rediscovered, or undiscovered after calling various {@link BleManager#startScan()}

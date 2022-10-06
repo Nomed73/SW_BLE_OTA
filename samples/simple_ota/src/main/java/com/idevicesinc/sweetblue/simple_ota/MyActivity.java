@@ -18,6 +18,9 @@
 package com.idevicesinc.sweetblue.simple_ota;
 
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.content.Context;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
@@ -34,29 +37,41 @@ import com.idevicesinc.sweetblue.ReadWriteListener;
 import com.idevicesinc.sweetblue.utils.BleSetupHelper;
 import com.idevicesinc.sweetblue.utils.Uuids;
 
-import java.io.ByteArrayInputStream;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+//import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+//import java.io.IOException;
+import java.io.IOException;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.net.URL;
 
 /**
  * A very simple example which shows how to scan for BLE devices, connect to the first one seen, and then perform an over-the-air (OTA) firmware update.
  */
 public class MyActivity extends Activity
 {
-
-    private static final String GEL_BLASTER_UUID = "000000ff-0000-1000-8000-00805f9b34fb";  //GelBlaster UUID
-
-    // This is the UUID of the characteristic we want to write to
-    private static final UUID MY_UUID = UUID.fromString("d6f1d96d-594c-4c53-b1c6-244a1dfde6d8");
-
     private BleManager m_bleManager;
     private BleDevice m_bleDevice;
     private boolean m_discovered = false;
+    private static final UUID GB_FIRMWARE_UUID = UUID.fromString("d6f1d96d-594c-4c53-b1c6-244a1dfde6d8");
+    private static final String GEL_BLASTER_UUID ="000000ff-0000-1000-8000-00805f9b34fb";
+    private static URL gelBlasterFirmwareUrl = null;
+    static {
+        try {
+            gelBlasterFirmwareUrl = new URL("https://gp-firmware-test.s3.amazonaws.com/hello_world.bin");
+        } catch (MalformedURLException e) {
+            e.printStackTrace();
+        }
+    }
+    private DownloadManager downloadManager;
+    private long downloadId;
 
     // There's really no need to keep this up here, it's just here for convenience. Here for sample data.
     private static final byte[] MY_DATA = {(byte) 0xC0, (byte) 0xFF, (byte) 0xEE};//  NOTE: Replace with your actual data, not 0xC0FFEE.
@@ -65,11 +80,8 @@ public class MyActivity extends Activity
     protected void onCreate(Bundle savedInstanceState)
     {
         super.onCreate(savedInstanceState);
-
-        // Check that required variables were initialized
-        if (MY_UUID.equals(Uuids.INVALID))
+        if (GB_FIRMWARE_UUID.equals(Uuids.INVALID))
             throw new RuntimeException("You need to set a valid UUID for MY_UUID!");
-
         startScan();
     }
 
@@ -79,60 +91,100 @@ public class MyActivity extends Activity
         // Only enable logging in debug builds
         config.loggingOptions = BuildConfig.DEBUG ? LogOptions.ON : LogOptions.OFF;
 
-        // Get the instance of the BleManager, and pass in the config.
         m_bleManager = BleManager.get(this, config);
 
         // Set the discovery listener. You can pass in a listener when calling startScan() if you want, but in most cases, this is preferred so you don't
         // have to keep passing in the listener when calling any of the startScan methods.
         m_bleManager.setListener_Discovery(this::onDeviceDiscovered);
-
-        // The BleSetupHelper will take care of requesting the necessary permissions on Android M and above. It needs A> Bluetooth to be on of course,
-        // B> Location permissions, and C> Location services enabled in order for a BLE scan to return any results.
         BleSetupHelper.runEnabler(m_bleManager, this, result ->
         {
             if (result.getSuccessful())
             {
-                // Start the scan.
                 m_bleManager.startScan();
             }
         });
-
     }
 
-    private void onDeviceDiscovered(DiscoveryListener.DiscoveryEvent discoveryEvent)
-    {
-        //Message to check if I made it here
-        Toast.makeText(this, "Looking for BLE", Toast.LENGTH_LONG).show();
-
+    /**
+     * Connects to a specified BLE based on the UUID value assigned.
+     *
+     * @param discoveryEvent
+     */
+    private void onDeviceDiscovered(DiscoveryListener.DiscoveryEvent discoveryEvent){
         if(!m_discovered)
         {
             BleDevice temp = discoveryEvent.device();
-            //Assist with debugging and see what is happening, can be deleted.
-            String message = "Name : "+ temp.getName_normalized() + " UUID: ";
-
-            //Create a string of the UUID of the temp BLE device
-            String uuidTemp = "";
+            String uuidOfTempDevice = "";
             for(int i = 0; i < temp.getAdvertisedServices().length; i++)
             {
-                uuidTemp += temp.getAdvertisedServices()[i];
+                uuidOfTempDevice += temp.getAdvertisedServices()[i];
             }
-            message += uuidTemp;
-            Log.d("OnDiscoveredDevice: ", "UUID:" + message);
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-            if(uuidTemp.equals(GEL_BLASTER_UUID))
+
+            if(uuidOfTempDevice.equals(GEL_BLASTER_UUID))
             {
+                m_bleManager.stopScan();
                 m_bleDevice = temp;
                 m_discovered = true;
-                m_bleManager.stopScan();
-                //Remove the line below later
-                Log.d("OnDiscoveredDevice: ", "Connected to : " + m_bleDevice.getName_normalized());
+
+                Log.i("Medrano: ", "UUIDs matched, BLE Device is " + m_bleDevice.getName_normalized());
+                downloadFirmware();
                 connectToDevice();
             }
         }
     }
 
+
+    //Code my own methods for the firmware download and transfer to ESP32
+    //Will attempt to do this without using SweetBlue library.
+    public void downloadFirmware() {
+
+        Log.i("Medrano: ", " Made it to downloadFirmware()");
+
+        downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        Uri uri = Uri.parse(String.valueOf(gelBlasterFirmwareUrl));
+
+        //request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
+        //long reference = downloadManager.enqueue(request);
+        //long reference = downloadManager.enqueue(request);
+
+        File file = new File(getExternalFilesDir(null), "Firmware");
+        DownloadManager.Request request = null;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+            request=new DownloadManager.Request(uri)
+                    .setTitle("Firmware")
+                    .setDescription("Downloading")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationUri(Uri.fromFile(file))
+                    .setRequiresCharging(false)
+                    .setAllowedOverMetered(true)
+                    .setAllowedOverRoaming(true);
+        }
+        else{
+            request=new DownloadManager.Request(uri)
+                    .setTitle("Firmware")
+                    .setDescription("Downloading")
+                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    .setDestinationUri(Uri.fromFile(file))
+                    .setAllowedOverRoaming(true);
+        }
+
+        DownloadManager downloadManager=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);
+        downloadId=downloadManager.enqueue(request);
+
+        Log.i("Medrano: ", " End of downloadFirmware");
+    }
+
+
+    /**
+     * Below are the provided Methods in the simple_ota app from sweetblue
+     * private void connectToDevice()
+     * private static class SimpleOtaTransaction extends BleTransaction.Ota
+     *
+     **/
     private void connectToDevice()
     {
+        Log.i("Medrano: ", " Made it to connectToDevice");
+        Log.i("Medrano: ", " Current BLE Device: " + m_bleDevice.getName_normalized());
         // Connect to the device, and pass in a device connect listener, so we know when we are connected, and also to know if/when the connection failed.
         // In this instance, we're only worried about when the connection fails, and SweetBlue has given up trying to connect.
         m_bleDevice.connect(connectEvent ->
@@ -148,7 +200,7 @@ public class MyActivity extends Activity
                 writeQueue.add(MY_DATA);
                 writeQueue.add(MY_DATA);
 
-                connectEvent.device().performOta(new SimpleOtaTransaction(writeQueue));
+                //connectEvent.device().performOta(new SimpleOtaTransaction(writeQueue));
             }
             else
             {
@@ -190,9 +242,9 @@ public class MyActivity extends Activity
         };
 
         // Cache an instance of BleWrite, then we simply change the data we're sending.
-        private final BleWrite m_bleWrite = new BleWrite(MY_UUID).setReadWriteListener(m_readWriteListener);
+        private final BleWrite m_bleWrite = new BleWrite(GB_FIRMWARE_UUID).setReadWriteListener(m_readWriteListener);
 
-        public SimpleOtaTransaction(final List<byte[]> dataQueue) throws MalformedURLException {
+        public SimpleOtaTransaction(final List<byte[]> dataQueue){
             m_dataQueue = dataQueue;
         }
 
