@@ -143,6 +143,7 @@ public class MyActivity extends Activity
         downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
         Uri uri = Uri.parse(String.valueOf(gelBlasterFirmwareUrl));
 
+        // TODO : Test
         //request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
         //long reference = downloadManager.enqueue(request);
         //long reference = downloadManager.enqueue(request);
