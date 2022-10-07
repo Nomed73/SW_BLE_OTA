@@ -22,6 +22,7 @@ import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -38,17 +39,22 @@ import com.idevicesinc.sweetblue.utils.BleSetupHelper;
 import com.idevicesinc.sweetblue.utils.Uuids;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 //import java.io.FileNotFoundException;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 //import java.io.IOException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Array;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -60,7 +66,7 @@ public class MyActivity extends Activity
     private BleManager m_bleManager;
     private BleDevice m_bleDevice;
     private boolean m_discovered = false;
-    private static final UUID GB_FIRMWARE_UUID = UUID.fromString("d6f1d96d-594c-4c53-b1c6-244a1dfde6d8");
+    private static final UUID GB_FIRMWARE_UUID = UUID.fromString("23408888-1f40-4cd8-9b89-ca8d45f8a5b0");// what Obe had given me: d6f1d96d-594c-4c53-b1c6-244a1dfde6d8");
     private static final String GEL_BLASTER_UUID ="000000ff-0000-1000-8000-00805f9b34fb";
     private static URL gelBlasterFirmwareUrl = null;
     static {
@@ -70,8 +76,9 @@ public class MyActivity extends Activity
             e.printStackTrace();
         }
     }
+
     private DownloadManager downloadManager;
-    private long downloadId;
+    private final String firmwareFileName = "GelBlaserFirmware";
 
     // There's really no need to keep this up here, it's just here for convenience. Here for sample data.
     private static final byte[] MY_DATA = {(byte) 0xC0, (byte) 0xFF, (byte) 0xEE};//  NOTE: Replace with your actual data, not 0xC0FFEE.
@@ -127,7 +134,11 @@ public class MyActivity extends Activity
                 m_discovered = true;
 
                 Log.i("Medrano: ", "UUIDs matched, BLE Device is " + m_bleDevice.getName_normalized());
-                downloadFirmware();
+                try {
+                    downloadFirmware();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
                 connectToDevice();
             }
         }
@@ -136,45 +147,60 @@ public class MyActivity extends Activity
 
     //Code my own methods for the firmware download and transfer to ESP32
     //Will attempt to do this without using SweetBlue library.
-    public void downloadFirmware() {
+    public void downloadFirmware() throws IOException {
 
+        //TODO : REMOVE BEFORE FINAL
         Log.i("Medrano: ", " Made it to downloadFirmware()");
 
         downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
-        Uri uri = Uri.parse(String.valueOf(gelBlasterFirmwareUrl));
+        Uri uri = Uri.parse("https://gp-firmware-test.s3.amazonaws.com/hello_world.bin");
+        DownloadManager.Request request = new DownloadManager.Request(uri);
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
+        request.setDescription("Firmware Download").setTitle("Notification Title");
+        request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,firmwareFileName);
+        long reference = downloadManager.enqueue(request);
 
-        // TODO : Test
-        //request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
-        //long reference = downloadManager.enqueue(request);
-        //long reference = downloadManager.enqueue(request);
+        //TODO: REMOVE FOR FINAL
+        Log.i("Medrano: ", " End of downloadFirmware()");
 
-        File file = new File(getExternalFilesDir(null), "Firmware");
-        DownloadManager.Request request = null;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            request=new DownloadManager.Request(uri)
-                    .setTitle("Firmware")
-                    .setDescription("Downloading")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationUri(Uri.fromFile(file))
-                    .setRequiresCharging(false)
-                    .setAllowedOverMetered(true)
-                    .setAllowedOverRoaming(true);
-        }
-        else{
-            request=new DownloadManager.Request(uri)
-                    .setTitle("Firmware")
-                    .setDescription("Downloading")
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationUri(Uri.fromFile(file))
-                    .setAllowedOverRoaming(true);
-        }
-
-        DownloadManager downloadManager=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);
-        downloadId=downloadManager.enqueue(request);
-
-        Log.i("Medrano: ", " End of downloadFirmware");
+        readFileToBytes();
     }
 
+    /**
+     * Recieve the location of the file and convert the file to a byteArray
+     * This method may change from a void method to return the byte ArrayList later.
+     */
+    public void readFileToBytes()
+    {
+        //TODO: REMOVE FOR FINAL
+        Log.i("Medrano: ", " START of readFileToBytes()");
+
+        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), firmwareFileName);
+        FileInputStream fileStream = null;
+        try {
+            fileStream = new FileInputStream(file);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        byte[] fileInBytes = new byte[(int) file.length()];
+
+        try {
+            fileStream.read(fileInBytes);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            fileStream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+        //TODO: REMOVE FOR FINAL
+        Log.i("Medrano : ", "Array Contents : " + Arrays.toString(fileInBytes));
+        Log.i("Medrano : ", "Length of array : " + fileInBytes.length);
+        Log.i("Medrano: ", " END of readFileToBytes()");
+    }
 
     /**
      * Below are the provided Methods in the simple_ota app from sweetblue
@@ -184,6 +210,7 @@ public class MyActivity extends Activity
      **/
     private void connectToDevice()
     {
+        //TODO: REMOVE FOR FINAL
         Log.i("Medrano: ", " Made it to connectToDevice");
         Log.i("Medrano: ", " Current BLE Device: " + m_bleDevice.getName_normalized());
         // Connect to the device, and pass in a device connect listener, so we know when we are connected, and also to know if/when the connection failed.
@@ -212,6 +239,7 @@ public class MyActivity extends Activity
                     Log.e("SweetBlueExample", connectEvent.device().getName_debug() + " failed to connect with a status of " + connectEvent.failEvent().status().name());
                 }
             }
+            //TODO: REMOVE FOR FINAL, here for testing
             Toast.makeText(this, "Connected to " + m_bleDevice.getName_normalized(), Toast.LENGTH_LONG).show();
 
         });
