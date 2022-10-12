@@ -34,23 +34,17 @@ import com.idevicesinc.sweetblue.BleWrite;
 import com.idevicesinc.sweetblue.BuildConfig;
 import com.idevicesinc.sweetblue.DiscoveryListener;
 import com.idevicesinc.sweetblue.LogOptions;
+import com.idevicesinc.sweetblue.MtuTestCallback;
 import com.idevicesinc.sweetblue.ReadWriteListener;
 import com.idevicesinc.sweetblue.utils.BleSetupHelper;
 import com.idevicesinc.sweetblue.utils.Uuids;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 //import java.io.FileNotFoundException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 //import java.io.IOException;
 import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Array;
-import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.ArrayList;
@@ -78,7 +72,9 @@ public class MyActivity extends Activity
     }
 
     private DownloadManager downloadManager;
-    private final String firmwareFileName = "GelBlaserFirmware";
+    private final String firmwareFileName = "GelBlasterFirmware";
+    private long firmwareID;
+    private File firmwareFile;
 
     // There's really no need to keep this up here, it's just here for convenience. Here for sample data.
     private static final byte[] MY_DATA = {(byte) 0xC0, (byte) 0xFF, (byte) 0xEE};//  NOTE: Replace with your actual data, not 0xC0FFEE.
@@ -135,10 +131,11 @@ public class MyActivity extends Activity
 
                 Log.i("Medrano: ", "UUIDs matched, BLE Device is " + m_bleDevice.getName_normalized());
                 try {
-                    downloadFirmware();
+                    firmwareFile = downloadFirmware();
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+
                 connectToDevice();
             }
         }
@@ -147,7 +144,7 @@ public class MyActivity extends Activity
 
     //Code my own methods for the firmware download and transfer to ESP32
     //Will attempt to do this without using SweetBlue library.
-    public void downloadFirmware() throws IOException {
+    public File downloadFirmware() throws IOException {
 
         //TODO : REMOVE BEFORE FINAL
         Log.i("Medrano: ", " Made it to downloadFirmware()");
@@ -158,24 +155,30 @@ public class MyActivity extends Activity
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
         request.setDescription("Firmware Download").setTitle("Notification Title");
         request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS,firmwareFileName);
-        long reference = downloadManager.enqueue(request);
+        request.setVisibleInDownloadsUi(false);
+        firmwareID = downloadManager.enqueue(request);
 
         //TODO: REMOVE FOR FINAL
         Log.i("Medrano: ", " End of downloadFirmware()");
 
-        readFileToBytes();
+        return new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), firmwareFileName);
+
+        //convertFileToByteArray();
     }
+
+
 
     /**
      * Recieve the location of the file and convert the file to a byteArray
      * This method may change from a void method to return the byte ArrayList later.
      */
-    public void readFileToBytes()
+    public byte[] convertFileToByteArray(File file)
     {
         //TODO: REMOVE FOR FINAL
-        Log.i("Medrano: ", " START of readFileToBytes()");
+        Log.i("Medrano: ", " START of convertFileToByteArray()");
 
-        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), firmwareFileName);
+        //File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), firmwareFileName);
+
         FileInputStream fileStream = null;
         try {
             fileStream = new FileInputStream(file);
@@ -200,6 +203,47 @@ public class MyActivity extends Activity
         Log.i("Medrano : ", "Array Contents : " + Arrays.toString(fileInBytes));
         Log.i("Medrano : ", "Length of array : " + fileInBytes.length);
         Log.i("Medrano: ", " END of readFileToBytes()");
+
+        //createDataPackets(fileInBytes);
+        return fileInBytes;
+    }
+
+    public List<byte[]> createDataPackets(byte[] fileInBytes){
+
+        //This works already
+        //int packetSize = m_bleDevice.getEffectiveWriteMtuSize();
+        int packetSize = 253;
+
+        m_bleDevice.negotiateMtu(packetSize);
+
+        //TODO : Remove, here only for testing and debugging
+        Log.i("Medrano: ", " Max MTU Size: " + packetSize);
+
+        List<byte[]> dataPackets = new ArrayList<byte[]>();
+        int byteIdx = 0;
+        //int dataPacketIdx = 0;
+
+        Log.i("Medrano : ", "File Length : " + fileInBytes.length);
+        while( byteIdx < fileInBytes.length){
+            Log.i("Medrano : ", "byteIdx =  : " + byteIdx);
+
+            if(fileInBytes.length - byteIdx < packetSize){
+                packetSize = fileInBytes.length % packetSize;
+            }
+            byte[] temp = new byte[packetSize];
+            for(int i = 0; i < packetSize; i++){
+                temp[i] = fileInBytes[byteIdx];
+                byteIdx++;
+            }
+            dataPackets.add(temp);
+            //dataPacketIdx++;
+        }
+
+        //TODO : Remove, here only for testing and debugging
+        Log.i("Medrano : ", "Data Packets : " + Arrays.toString(dataPackets.get(0)));
+        Log.i("Medrano : ", "Data Packets : " + Arrays.toString(dataPackets.get(1)));
+        return dataPackets;
+
     }
 
     /**
@@ -219,16 +263,12 @@ public class MyActivity extends Activity
         {
             if (connectEvent.wasSuccess())
             {
-                Log.i("SweetBlueExample", connectEvent.device().getName_debug() + " just got connected and is ready to use!");
+                Log.i("Medrano : ", connectEvent.device().getName_debug() + " just got connected and is ready to use!");
+                final List<byte[]> writeQueue = createDataPackets(convertFileToByteArray(firmwareFile));
+                connectEvent.device().performOta(new SimpleOtaTransaction(writeQueue));
+                downloadManager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+                downloadManager.remove(firmwareID);
 
-                final ArrayList<byte[]> writeQueue = new ArrayList<>();
-
-                writeQueue.add(MY_DATA);
-                writeQueue.add(MY_DATA);
-                writeQueue.add(MY_DATA);
-                writeQueue.add(MY_DATA);
-
-                //connectEvent.device().performOta(new SimpleOtaTransaction(writeQueue));
             }
             else
             {
@@ -236,11 +276,11 @@ public class MyActivity extends Activity
                 {
                     // If the connectEvent says it's NOT a retry, then SweetBlue has given up trying to connect, so let's print an error log
                     // The ConnectEvent also keeps an instance of the ConnectionFailEvent, so you can find out the reason for the failure.
-                    Log.e("SweetBlueExample", connectEvent.device().getName_debug() + " failed to connect with a status of " + connectEvent.failEvent().status().name());
+                    Log.e("Medrano : ", connectEvent.device().getName_debug() + " failed to connect with a status of " + connectEvent.failEvent().status().name());
                 }
             }
             //TODO: REMOVE FOR FINAL, here for testing
-            Toast.makeText(this, "Connected to " + m_bleDevice.getName_normalized(), Toast.LENGTH_LONG).show();
+            Log.i("Medrano : ", "Connected to " + m_bleDevice.getName_normalized());
 
         });
 
@@ -250,30 +290,24 @@ public class MyActivity extends Activity
     // write operation.
     private static class SimpleOtaTransaction extends BleTransaction.Ota
     {
-        // Our list of byte arrays to be sent to the device
         private final List<byte[]> m_dataQueue;
-
-        // The current index we're on in the list
         private int m_currentIndex = 0;
 
         // A ReadWriteListener for listening to the result of each write.
         private final ReadWriteListener m_readWriteListener = readWriteEvent ->
         {
-            // If the last write was a success, go ahead and move on to the next one
             if (readWriteEvent.wasSuccess())
                 doNextWrite();
             else
             {
-                // When running a transaction, you must remember to call succeed(), or fail() to release the queue for other operations to be
-                // performed.
                 fail();
             }
         };
 
-        // Cache an instance of BleWrite, then we simply change the data we're sending.
         private final BleWrite m_bleWrite = new BleWrite(GB_FIRMWARE_UUID).setReadWriteListener(m_readWriteListener);
 
-        public SimpleOtaTransaction(final List<byte[]> dataQueue){
+        public SimpleOtaTransaction(final List<byte[]> dataQueue)
+        {
             m_dataQueue = dataQueue;
         }
 
@@ -294,11 +328,7 @@ public class MyActivity extends Activity
             {
                 final byte[] nextData = m_dataQueue.get(m_currentIndex);
                 m_bleWrite.setBytes(nextData);
-
-                // The transaction classes have convenience methods for common operations, such as read, write, enable/disable notifications etc.
-                // It's highly recommended you use these methods to enforce proper transaction rules
                 write(m_bleWrite);
-
                 m_currentIndex++;
             }
         }
