@@ -38,8 +38,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
     lint {
         lintConfig file('../lint.xml')
@@ -146,7 +146,7 @@ def updateMarkdownFilesAndReadme() {
         }
         if (contents =~ "https://img.shields.io/badge/") {
             println("Updating file " + file.getName())
-            var ver = version.toString().replaceAll("-", "_");
+            var ver = version.toString().replaceAll("-", "_")
             contents = contents.replaceAll("version-.*-blue", "version-${ver}-blue")
             file.write(contents, 'UTF-8')
         }
